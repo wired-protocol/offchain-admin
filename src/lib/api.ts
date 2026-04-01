@@ -102,7 +102,6 @@ export interface Dispute {
     amount: string;
     status: string;
     timeout_timestamp: number;
-    disputed: boolean;
   } | null;
 }
 
