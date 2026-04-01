@@ -19,15 +19,29 @@ export function hasApiKey(): boolean {
   return Boolean(getApiKey());
 }
 
-async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}/admin${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Admin-Key": getApiKey(),
-      ...init.headers,
-    },
-  });
+async function apiFetch<T>(path: string, init: RequestInit = {}, timeoutMs = 60_000): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/admin${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Key": getApiKey(),
+        ...init.headers,
+      },
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out — the server took too long to respond");
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);

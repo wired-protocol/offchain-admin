@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import Link from "next/link";
 import { getDispute, resolveDispute, hasApiKey, type Dispute } from "@/lib/api";
 import { useWalletBridge } from "@/lib/bridge/react";
@@ -36,6 +36,7 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
   const [notes, setNotes] = useState("");
   const [confirmAction, setConfirmAction] = useState<"RELEASE_TO_SELLER" | "REFUND_TO_BUYER" | null>(null);
   const [resolveError, setResolveError] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
 
   const walletConnected = connectionState === "connected" && identity;
 
@@ -47,11 +48,24 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
       .finally(() => setLoading(false));
   }, [id]);
 
+  function handleCancel() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setConfirmAction(null);
+    setResolving(false);
+    setResolveStatus("");
+    setResolveError("");
+  }
+
   async function handleResolve() {
     if (!confirmAction || !dispute) return;
     if (!notes.trim()) { setResolveError("Operator notes are required"); return; }
     setResolving(true);
     setResolveError("");
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     try {
       let signedTxHex: string | undefined;
 
@@ -63,23 +77,31 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
           return;
         }
         setResolveStatus("Approve the transaction in your wallet...");
-        const resArg = confirmAction === "RELEASE_TO_SELLER" ? "release" as const : "refund" as const;
+        // Escrow owner hashes are inverted relative to the trade's buyer/seller:
+        // escrow.seller_owner_hash = trade buyer, escrow.buyer_owner_hash = trade seller.
+        // So "release to trade seller" maps to on-chain "refund" (buyer_owner_hash)
+        // and "refund to trade buyer" maps to on-chain "release" (seller_owner_hash).
+        const onChainRes = confirmAction === "RELEASE_TO_SELLER" ? "refund" as const : "release" as const;
         const result = await bridge.signEscrowResolve({
           escrow_id: dispute.trade.escrowId,
-          resolution: resArg,
+          resolution: onChainRes,
         });
+        if (abort.signal.aborted) return;
         signedTxHex = result.tx_hex;
       }
 
       setResolveStatus("Submitting resolution...");
       const updated = await resolveDispute(dispute.id, confirmAction, notes, signedTxHex);
+      if (abort.signal.aborted) return;
       setDispute({ ...dispute, ...updated });
       setConfirmAction(null);
     } catch (e) {
+      if (abort.signal.aborted) return;
       setResolveError(e instanceof Error ? e.message : "Failed to resolve");
     } finally {
       setResolving(false);
       setResolveStatus("");
+      abortRef.current = null;
     }
   }
 
@@ -93,6 +115,8 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
 
   const escrow = dispute.onChainEscrow;
   const timeoutDate = escrow ? new Date(escrow.timeout_timestamp * 1000) : null;
+  const escrowSettled = escrow && !["Locked", "DisputedLocked"].includes(escrow.status);
+  const canResolve = !isResolved && !escrowSettled;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -228,6 +252,12 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
         </Section>
+      ) : escrowSettled ? (
+        <Section title="Resolution Actions">
+          <div className="text-sm text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted))] rounded-lg p-4">
+            Escrow has already been <span className="text-[hsl(var(--foreground))] font-semibold">{escrow!.status.toLowerCase()}</span> on-chain. No operator action is available.
+          </div>
+        </Section>
       ) : (
         <Section title="Resolution Actions">
           <div className="space-y-4">
@@ -300,9 +330,8 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
             {resolveError && <p className="text-sm text-red-400">{resolveError}</p>}
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setConfirmAction(null)}
-                disabled={resolving}
-                className="flex-1 py-2.5 rounded-xl border border-[hsl(var(--border))] text-sm disabled:opacity-40"
+                onClick={handleCancel}
+                className="flex-1 py-2.5 rounded-xl border border-[hsl(var(--border))] text-sm"
               >
                 Cancel
               </button>
