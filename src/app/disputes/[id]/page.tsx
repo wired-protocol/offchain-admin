@@ -162,6 +162,7 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
         <Section title="On-Chain Escrow State">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <Field label="Status" value={<span className={escrow.status === "DisputedLocked" ? "text-red-400" : ""}>{escrow.status}</span>} />
+            <Field label="Fee" value={`${escrow.fee ?? 0} WRD`} />
             <Field label="Disputed Flag" value={escrow.disputed ? "Yes" : "No"} />
             <Field label="Timeout" value={timeoutDate ? timeoutDate.toLocaleString() : "–"} />
             {timeoutDate && <Field label="Timed Out?" value={timeoutDate < new Date() ? "Yes" : "No"} />}
