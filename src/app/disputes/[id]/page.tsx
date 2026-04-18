@@ -114,7 +114,7 @@ export default function DisputeDetailPage({ params }: { params: Promise<{ id: st
   const isLocked = trade.status === "DISPUTED_LOCKED";
 
   const escrow = dispute.onChainEscrow;
-  const timeoutDate = escrow ? new Date(escrow.timeout_timestamp * 1000) : null;
+  const timeoutDate = escrow ? new Date(escrow.timeout_height * 1000) : null;
   const escrowSettled = escrow && !["Locked", "DisputedLocked"].includes(escrow.status);
   const canResolve = !isResolved && !escrowSettled;
 

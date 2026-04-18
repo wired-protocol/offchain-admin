@@ -101,7 +101,7 @@ export interface Dispute {
     escrow_id: string;
     amount: string;
     status: string;
-    timeout_timestamp: number;
+    timeout_height: number;
   } | null;
 }
 
